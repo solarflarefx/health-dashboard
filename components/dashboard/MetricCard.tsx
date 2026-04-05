@@ -1,0 +1,52 @@
+import type { MetricCardProps } from '@/types/dashboard';
+
+const colorClasses = {
+  green: { value: 'text-accent-green', bar: 'bg-accent-green' },
+  blue:  { value: 'text-accent-blue',  bar: 'bg-accent-blue'  },
+  coral: { value: 'text-accent-coral', bar: 'bg-accent-coral' },
+  default: { value: 'text-text-primary', bar: 'bg-text-primary' },
+} as const;
+
+/**
+ * Displays a single health metric with an optional progress bar.
+ * Value text uses `font-mono-display` (JetBrains Mono) and is tinted
+ * with one of the Midnight Terminal accent tokens.
+ */
+export function MetricCard({
+  label,
+  value,
+  unit,
+  color = 'default',
+  progress,
+  barColor,
+}: MetricCardProps) {
+  const { value: valueClass, bar: barClass } = colorClasses[color];
+  const percentage = progress
+    ? Math.min(Math.round((progress.current / progress.goal) * 100), 100)
+    : 0;
+
+  return (
+    <div>
+      <p className="text-sm text-text-secondary mb-1">{label}</p>
+
+      <div className="flex items-baseline gap-2">
+        <span className={`text-2xl font-mono-display ${valueClass}`}>{value}</span>
+        {unit && <span className="text-sm text-text-secondary">{unit}</span>}
+      </div>
+
+      {progress && (
+        <div className="mt-2">
+          <div className="h-1 bg-background-hover rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${barColor ? '' : barClass}`}
+              style={{ width: `${percentage}%`, ...(barColor && { backgroundColor: barColor }) }}
+            />
+          </div>
+          <p className="mt-1 text-xs text-text-secondary font-mono-display">
+            {progress.current.toLocaleString()} / {progress.goal.toLocaleString()}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
