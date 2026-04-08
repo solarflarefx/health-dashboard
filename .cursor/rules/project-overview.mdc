@@ -1,0 +1,36 @@
+---
+description: Project overview for the personal health dashboard
+alwaysApply: true
+---
+
+# Health Dashboard — Project Overview
+
+## Project
+Personal health dashboard connected to Garmin Connect.
+
+## Stack
+- **Frontend**: Next.js 14, TypeScript, Tailwind CSS
+- **Backend**: FastAPI, Python 3.12, uv
+
+## Color System
+Midnight Terminal palette with custom Tailwind tokens — always use these, never raw hex:
+- `bg-background-card` — card backgrounds
+- `text-accent-green` — positive metrics, active states
+- `text-accent-coral` — warnings, elevated values
+- `text-accent-blue` — informational, neutral metrics
+
+## Component Architecture
+- `components/dashboard/` — dashboard-specific: `MetricCard`, `SectionPanel`, `VO2MaxChart`
+- `components/ui/` — generic, reusable UI primitives
+
+## API
+- Frontend calls FastAPI backend via `NEXT_PUBLIC_API_URL`
+- Backend fetches data from Garmin Connect
+
+## Auth
+- Garmin credentials stored in `backend/.env`
+- Tokens cached in `.secrets/garmin/`
+
+## Package Management
+- Frontend: `npm`
+- Backend: `uv`

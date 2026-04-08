@@ -1,0 +1,25 @@
+---
+description: Frontend conventions for Next.js/TypeScript/Tailwind
+globs: **/*.tsx,**/*.ts
+alwaysApply: false
+---
+
+# Frontend Conventions
+
+## TypeScript
+- Always use strict typing — no `any`, no implicit types
+- Types for dashboard data go in `types/dashboard.ts`
+
+## Styling
+- Use Tailwind utility classes exclusively
+- Use custom color tokens (`text-accent-green`, `bg-background-card`, etc.) — never hardcode hex values
+- Use `font-mono-display` class for metric values (heart rate, VO2max, steps, etc.)
+
+## Components
+- Dashboard-specific components → `components/dashboard/`
+- Generic/reusable components → `components/ui/`
+
+## Data Fetching
+- All API calls go in `lib/` — never fetch directly inside components
+- Use Next.js App Router patterns (server components, `use client` only when needed)
+- Never use Pages Router patterns (`getServerSideProps`, `getStaticProps`)

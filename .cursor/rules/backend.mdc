@@ -1,0 +1,27 @@
+---
+description: Backend conventions for FastAPI/Python
+globs: **/*.py
+alwaysApply: false
+---
+
+# Backend Conventions
+
+## Package Management
+- Always use `uv add <package>` — never `pip install`
+
+## Configuration
+- Use `pydantic-settings` for all config — never access `os.environ` directly
+- Environment variables loaded from `backend/.env` via `app/config.py`
+
+## Project Structure
+- Routers → `app/routers/`
+- Business logic → `app/services/`
+- Pydantic models → `app/models/`
+
+## API Design
+- All endpoints must return Pydantic models — never return raw `dict`
+- Use `async`/`await` throughout; no synchronous route handlers
+
+## Garmin Service
+- Handle token refresh gracefully — catch `GarminConnectAuthenticationError` and re-authenticate
+- Never expose raw Garmin credentials or tokens in responses

@@ -1,0 +1,23 @@
+---
+description: General project conventions and workflow rules
+alwaysApply: true
+---
+
+# Project Conventions
+
+## Git
+- Write descriptive commit messages that reference what changed and why
+- Never commit: `.env` files, `.secrets/`, `node_modules/`, `__pycache__/`
+
+## Dependencies
+- Frontend: `npm install <package>`
+- Backend: `uv add <package>`
+- Never manually edit `package.json` or `pyproject.toml` to add deps
+
+## Error Handling
+- Always handle errors explicitly — no silent `except: pass` or empty `catch` blocks
+- Surface meaningful error messages to the caller
+
+## Decision Making
+- When a design or architecture decision is non-obvious, ask before implementing
+- Prefer clarity over cleverness
