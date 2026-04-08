@@ -1,0 +1,133 @@
+"""Integration tests for all FastAPI endpoints."""
+import pytest
+from fastapi.testclient import TestClient
+
+
+class TestHealthEndpoint:
+    def test_returns_200(self, client: TestClient) -> None:
+        assert client.get("/health").status_code == 200
+
+    def test_returns_ok_status(self, client: TestClient) -> None:
+        assert client.get("/health").json() == {"status": "ok"}
+
+    def test_available_when_unauthenticated(self, unauthenticated_client: TestClient) -> None:
+        """Health check must succeed regardless of Garmin auth state."""
+        assert unauthenticated_client.get("/health").status_code == 200
+
+
+class TestTodayMetrics:
+    def test_returns_200(self, client: TestClient) -> None:
+        assert client.get("/api/metrics/today").status_code == 200
+
+    def test_response_shape(self, client: TestClient) -> None:
+        data = client.get("/api/metrics/today").json()
+        assert "steps" in data
+        assert "steps_goal" in data
+        assert "active_calories" in data
+        assert "activity_time" in data
+
+    def test_field_types(self, client: TestClient) -> None:
+        data = client.get("/api/metrics/today").json()
+        assert isinstance(data["steps"], int)
+        assert isinstance(data["steps_goal"], int)
+        assert isinstance(data["active_calories"], int)
+        assert isinstance(data["activity_time"], int)
+
+    def test_503_when_unauthenticated(self, unauthenticated_client: TestClient) -> None:
+        assert unauthenticated_client.get("/api/metrics/today").status_code == 503
+
+    def test_503_detail_message(self, unauthenticated_client: TestClient) -> None:
+        response = unauthenticated_client.get("/api/metrics/today")
+        assert "detail" in response.json()
+
+
+class TestHeartMetrics:
+    def test_returns_200(self, client: TestClient) -> None:
+        assert client.get("/api/metrics/heart").status_code == 200
+
+    def test_response_shape(self, client: TestClient) -> None:
+        data = client.get("/api/metrics/heart").json()
+        assert "resting_hr" in data
+        assert "min_hr" in data
+        assert "max_hr" in data
+        assert "stress_score" in data
+
+    def test_field_types(self, client: TestClient) -> None:
+        data = client.get("/api/metrics/heart").json()
+        assert isinstance(data["resting_hr"], int)
+        assert isinstance(data["stress_score"], int)
+
+    def test_503_when_unauthenticated(self, unauthenticated_client: TestClient) -> None:
+        assert unauthenticated_client.get("/api/metrics/heart").status_code == 503
+
+
+class TestMovementMetrics:
+    def test_returns_200(self, client: TestClient) -> None:
+        assert client.get("/api/metrics/movement").status_code == 200
+
+    def test_response_shape(self, client: TestClient) -> None:
+        data = client.get("/api/metrics/movement").json()
+        assert "weekly_activities" in data
+        assert "intensity_minutes" in data
+        assert "intensity_goal" in data
+        assert "distance" in data
+        assert "elevation" in data
+
+    def test_field_types(self, client: TestClient) -> None:
+        data = client.get("/api/metrics/movement").json()
+        assert isinstance(data["weekly_activities"], int)
+        assert isinstance(data["distance"], float)
+        assert isinstance(data["elevation"], float)
+
+    def test_503_when_unauthenticated(self, unauthenticated_client: TestClient) -> None:
+        assert unauthenticated_client.get("/api/metrics/movement").status_code == 503
+
+
+class TestVO2MaxEndpoint:
+    def test_returns_200(self, client: TestClient) -> None:
+        assert client.get("/api/metrics/vo2max").status_code == 200
+
+    def test_response_shape(self, client: TestClient) -> None:
+        data = client.get("/api/metrics/vo2max").json()
+        assert "current" in data
+        assert "change_this_month" in data
+        assert "history" in data
+
+    def test_history_is_list(self, client: TestClient) -> None:
+        data = client.get("/api/metrics/vo2max").json()
+        assert isinstance(data["history"], list)
+
+    def test_history_points_have_week_and_value(self, client: TestClient) -> None:
+        data = client.get("/api/metrics/vo2max").json()
+        assert len(data["history"]) > 0
+        for point in data["history"]:
+            assert "week" in point
+            assert "value" in point
+            assert isinstance(point["value"], float)
+
+    def test_503_when_unauthenticated(self, unauthenticated_client: TestClient) -> None:
+        assert unauthenticated_client.get("/api/metrics/vo2max").status_code == 503
+
+
+class TestAuthEndpoints:
+    def test_auth_status_returns_200(self, client: TestClient) -> None:
+        assert client.get("/api/auth/status").status_code == 200
+
+    def test_auth_status_shape(self, client: TestClient) -> None:
+        data = client.get("/api/auth/status").json()
+        assert "authenticated" in data
+        assert "message" in data
+        assert isinstance(data["authenticated"], bool)
+
+    def test_auth_status_true_when_client_ready(self, client: TestClient) -> None:
+        data = client.get("/api/auth/status").json()
+        assert data["authenticated"] is True
+
+    def test_auth_status_false_when_unauthenticated(self, unauthenticated_client: TestClient) -> None:
+        data = unauthenticated_client.get("/api/auth/status").json()
+        assert data["authenticated"] is False
+
+
+class TestUnknownEndpoints:
+    def test_unknown_route_returns_404(self, client: TestClient) -> None:
+        assert client.get("/api/metrics/nonexistent").status_code == 404

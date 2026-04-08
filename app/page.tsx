@@ -2,35 +2,28 @@ import { Activity, Heart, TrendingUp } from 'lucide-react';
 import { MetricCard } from '@/components/dashboard/MetricCard';
 import { SectionPanel } from '@/components/dashboard/SectionPanel';
 import { VO2MaxChart } from '@/components/dashboard/VO2MaxChart';
-import type {
-  TodayMetrics,
-  HeartHealthMetrics,
-  MovementMetrics,
-} from '@/types/dashboard';
+import {
+  fetchTodayMetrics,
+  fetchHeartHealthMetrics,
+  fetchMovementMetrics,
+  fetchVO2MaxTrend,
+} from '@/lib/api';
 
-const today: TodayMetrics = {
-  steps: 8742,
-  stepsGoal: 10000,
-  activeCalories: 487,
-  activityTime: 52,
-};
+export default async function Home() {
+  const [today, heartHealth, movement, vo2max] = await Promise.all([
+    fetchTodayMetrics(),
+    fetchHeartHealthMetrics(),
+    fetchMovementMetrics(),
+    fetchVO2MaxTrend(),
+  ]);
 
-const heartHealth: HeartHealthMetrics = {
-  restingHR: 58,
-  minHR: 54,
-  maxHR: 162,
-  stressScore: 32,
-};
+  const dateLabel = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
 
-const movement: MovementMetrics = {
-  weeklyActivities: 6,
-  intensityMinutes: 234,
-  intensityGoal: 150,
-  distance: 42.7,
-  elevation: 387,
-};
-
-export default function Home() {
   return (
     <main className="min-h-screen p-6 md:p-10">
       <div className="max-w-7xl mx-auto">
@@ -38,7 +31,7 @@ export default function Home() {
           <h1 className="text-3xl font-semibold text-text-primary mb-2">
             Health Dashboard
           </h1>
-          <p className="text-text-secondary">Saturday, April 4, 2026</p>
+          <p className="text-text-secondary">{dateLabel}</p>
         </div>
 
         <div className="space-y-4">
@@ -131,7 +124,7 @@ export default function Home() {
 
           {/* VO₂ Max Trend */}
           <SectionPanel title="VO₂ Max Trend" columns={1}>
-            <VO2MaxChart />
+            <VO2MaxChart trend={vo2max} />
           </SectionPanel>
         </div>
       </div>

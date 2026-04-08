@@ -16,11 +16,9 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { TrendingUp } from 'lucide-react';
+import type { VO2MaxTrend } from '@/lib/api';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip);
-
-const LABELS = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8', 'W9', 'W10', 'W11', 'W12'];
-const DATA_POINTS = [42, 43, 42, 44, 45, 44, 46, 47, 46, 48, 48, 49];
 
 /** Draws a dashed vertical rule at the active x position, matching Figma Make crosshair behavior. */
 const crosshairPlugin: Plugin<'line'> = {
@@ -142,8 +140,7 @@ const CHART_OPTIONS: ChartOptions<'line'> = {
   },
 };
 
-const BASE_DATASET: ChartData<'line'>['datasets'][0] = {
-  data: DATA_POINTS,
+const BASE_DATASET: Omit<ChartData<'line'>['datasets'][0], 'data'> = {
   borderColor: '#60a5fa',
   backgroundColor: 'rgba(96, 165, 250, 0.15)',
   fill: true,
@@ -160,12 +157,24 @@ const BASE_DATASET: ChartData<'line'>['datasets'][0] = {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+interface VO2MaxChartProps {
+  trend: VO2MaxTrend;
+}
+
 /** Line chart showing VO₂ Max progression over 12 weeks with gradient fill, crosshair, and HTML tooltip. */
-export function VO2MaxChart() {
+export function VO2MaxChart({ trend }: VO2MaxChartProps) {
+  const labels = trend.history.map((p) => p.week);
+  const dataPoints = trend.history.map((p) => p.value);
+
+  const baseDataset: ChartData<'line'>['datasets'][0] = {
+    ...BASE_DATASET,
+    data: dataPoints,
+  };
+
   const chartRef = useRef<ChartJS<'line'>>(null);
   const [chartData, setChartData] = useState<ChartData<'line'>>({
-    labels: LABELS,
-    datasets: [BASE_DATASET],
+    labels,
+    datasets: [baseDataset],
   });
 
   useEffect(() => {
@@ -177,10 +186,14 @@ export function VO2MaxChart() {
     gradient.addColorStop(1, 'rgba(96, 165, 250, 0)');
 
     setChartData({
-      labels: LABELS,
-      datasets: [{ ...BASE_DATASET, backgroundColor: gradient }],
+      labels,
+      datasets: [{ ...baseDataset, backgroundColor: gradient }],
     });
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trend]);
+
+  const changeSign = trend.change_this_month >= 0 ? '+' : '';
+  const changeLabel = `${changeSign}${trend.change_this_month} this month`;
 
   return (
     <div>
@@ -193,11 +206,11 @@ export function VO2MaxChart() {
             fontVariantNumeric: 'tabular-nums',
             whiteSpace: 'nowrap',
           }}
-        >49.0</span>
+        >{trend.current.toFixed(1)}</span>
         <span className="text-sm text-text-secondary">ml/kg/min</span>
         <div className="flex items-center gap-1 ml-2">
           <TrendingUp className="w-4 h-4 text-accent-green" />
-          <span className="text-sm font-mono-display text-accent-green">+0.8 this month</span>
+          <span className="text-sm font-mono-display text-accent-green">{changeLabel}</span>
         </div>
       </div>
 
