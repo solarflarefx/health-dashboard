@@ -78,16 +78,21 @@ async def fetch_heart_health_metrics() -> HeartHealthMetrics:
     today_str = date.today().isoformat()
     client = get_garmin_client()
 
-    hr_data: dict = await asyncio.to_thread(client.get_heart_rates, today_str)
-    stress_data: dict = await asyncio.to_thread(client.get_stress_data, today_str)
+    hr_data, stats = await asyncio.gather(
+        asyncio.to_thread(client.get_heart_rates, today_str),
+        asyncio.to_thread(client.get_stats, today_str),
+    )
 
     resting_hr: int = int(hr_data.get("restingHeartRate") or 0)
     min_hr: int = int(hr_data.get("minHeartRate") or 0)
     max_hr: int = int(hr_data.get("maxHeartRate") or 0)
 
-    # Garmin returns an "overallStressLevel" (-1 when not enough data).
-    raw_stress = stress_data.get("overallStressLevel", -1)
-    stress_score: int = max(0, int(raw_stress))
+    # get_stress_data() returns None for averageStressLevel during the day.
+    # get_stats() provides averageStressLevel/maxStressLevel reliably instead.
+    avg_stress = stats.get("averageStressLevel")
+    max_stress = stats.get("maxStressLevel")
+    raw_stress = avg_stress if avg_stress is not None else max_stress
+    stress_score: int = max(0, int(raw_stress or 0))
 
     return HeartHealthMetrics(
         resting_hr=resting_hr,
@@ -103,16 +108,23 @@ async def fetch_heart_health_metrics() -> HeartHealthMetrics:
 @_with_auth_retry
 async def fetch_movement_metrics() -> MovementMetrics:
     today = date.today()
-    week_start = today - timedelta(days=today.weekday())  # Monday of current week
-    week_start_str = week_start.isoformat()
+    # Rolling 7-day window so activities are always included regardless of
+    # where we are in the calendar week.
+    window_start = today - timedelta(days=7)
     today_str = today.isoformat()
+    window_start_str = window_start.isoformat()
 
     client = get_garmin_client()
 
     activities, stats = await asyncio.gather(
-        asyncio.to_thread(client.get_activities_by_date, week_start_str, today_str),
+        asyncio.to_thread(client.get_activities_by_date, window_start_str, today_str),
         asyncio.to_thread(client.get_stats, today_str),
     )
+
+    # If today's stats are all None (Garmin hasn't synced yet), use yesterday.
+    if not any(stats.get(k) for k in ("totalSteps", "activeKilocalories", "moderateIntensityMinutes")):
+        yesterday_str = (today - timedelta(days=1)).isoformat()
+        stats = await asyncio.to_thread(client.get_stats, yesterday_str)
 
     weekly_activities: int = len(activities)
 
@@ -123,13 +135,9 @@ async def fetch_movement_metrics() -> MovementMetrics:
     intensity_minutes: int = moderate_min + vigorous_min * 2
     intensity_goal: int = 150
 
-    # Sum distance (metres → km) and elevation across this week's activities.
-    total_distance_m: float = sum(
-        float(a.get("distance") or 0) for a in activities
-    )
-    total_elevation_m: float = sum(
-        float(a.get("elevationGain") or 0) for a in activities
-    )
+    # Sum distance (metres → km) and elevation across the rolling window's activities.
+    total_distance_m: float = sum(float(a.get("distance") or 0) for a in activities)
+    total_elevation_m: float = sum(float(a.get("elevationGain") or 0) for a in activities)
 
     return MovementMetrics(
         weekly_activities=weekly_activities,
@@ -146,55 +154,25 @@ async def fetch_movement_metrics() -> MovementMetrics:
 @_with_auth_retry
 async def fetch_vo2max_trend() -> VO2MaxTrend:
     today = date.today()
-    # Go back 12 weeks from the most recent Monday.
-    week_start = today - timedelta(days=today.weekday())
-    start_date = week_start - timedelta(weeks=11)
-
     client = get_garmin_client()
 
-    # get_max_metrics returns a list of dicts with 'generic' and 'running' VO2 values.
-    raw: list[dict] = await asyncio.to_thread(
-        client.get_max_metrics,
-        start_date.isoformat(),
-        today.isoformat(),
-    )
-
-    # Build a map of week_start_date → latest VO2Max value seen that week.
-    weekly: dict[date, float] = {}
-    for entry in raw:
-        entry_date_str: str | None = entry.get("calendarDate") or entry.get("startTimestampLocal")
-        if not entry_date_str:
+    # get_max_metrics() takes a single date string and returns a list.
+    # A non-empty list has the VO2Max value at entry[0]['generic']['vo2MaxPreciseValue'].
+    # Empty lists and None mean no data for that week — skip entirely; do not add a point.
+    history: list[VO2MaxPoint] = []
+    for week_offset in range(12):
+        fetch_date = (today - timedelta(weeks=11 - week_offset)).isoformat()
+        entry = await asyncio.to_thread(client.get_max_metrics, fetch_date)
+        if not entry:
             continue
         try:
-            entry_date = date.fromisoformat(entry_date_str[:10])
-        except ValueError:
+            value = float(entry[0]["generic"]["vo2MaxPreciseValue"])
+        except (KeyError, IndexError, TypeError, ValueError):
             continue
-
-        # Prefer the 'generic' VO2Max value; fall back to 'running'.
-        value: float | None = (
-            entry.get("generic", {}) or {}
-        ).get("vo2MaxPreciseValue") or (
-            entry.get("running", {}) or {}
-        ).get("vo2MaxPreciseValue")
-        if value is None:
-            continue
-
-        bucket = entry_date - timedelta(days=entry_date.weekday())
-        weekly[bucket] = float(value)
-
-    # Build exactly 12 ordered weekly points (None → carry forward last known value).
-    history: list[VO2MaxPoint] = []
-    last_value: float | None = None
-    for i in range(12):
-        bucket = start_date + timedelta(weeks=i)
-        v = weekly.get(bucket, last_value)
-        if v is not None:
-            last_value = v
-            history.append(VO2MaxPoint(week=f"W{i + 1}", value=round(v, 1)))
+        history.append(VO2MaxPoint(week=f"W{len(history) + 1}", value=round(value, 1)))
 
     current: float = history[-1].value if history else 0.0
-    month_ago_value: float = history[-4].value if len(history) >= 4 else current
-    change_this_month: float = round(current - month_ago_value, 1)
+    change_this_month: float = round(current - history[0].value, 1) if len(history) >= 2 else 0.0
 
     return VO2MaxTrend(
         current=current,
