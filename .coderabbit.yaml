@@ -9,7 +9,7 @@ reviews:
   path_instructions:
     - path: 'backend/**/*.py'
       instructions: 'This is a FastAPI backend using Python 3.12 and uv. Check for proper async patterns, pydantic model usage, error handling, and security issues especially around credential handling.'
-    - path: '/*.tsx'
+    - path: '**/*.tsx'
       instructions: 'This is a Next.js 14 frontend with TypeScript and Tailwind CSS. Check for proper TypeScript typing, React patterns, and correct handling of null/undefined values from the API.'
     - path: 'backend/tests/**'
       instructions: 'Check that tests are comprehensive, use proper mocking, and cover edge cases.'
