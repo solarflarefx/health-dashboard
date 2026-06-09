@@ -1,4 +1,4 @@
-import { Activity, Heart, TrendingUp } from 'lucide-react';
+import { Activity, AlertCircle, Heart, TrendingUp } from 'lucide-react';
 import { MetricCard } from '@/components/dashboard/MetricCard';
 import { SectionPanel } from '@/components/dashboard/SectionPanel';
 import { VO2MaxChart } from '@/components/dashboard/VO2MaxChart';
@@ -8,15 +8,20 @@ import {
   fetchMovementMetrics,
   fetchVO2MaxTrend,
 } from '@/lib/api';
+import type { HeartHealthMetrics, MovementMetrics, TodayMetrics } from '@/types/dashboard';
+import type { VO2MaxTrend } from '@/lib/api';
 
-export default async function Home() {
-  const [today, heartHealth, movement, vo2max] = await Promise.all([
-    fetchTodayMetrics(),
-    fetchHeartHealthMetrics(),
-    fetchMovementMetrics(),
-    fetchVO2MaxTrend(),
-  ]);
-
+function DashboardContent({
+  today,
+  heartHealth,
+  movement,
+  vo2max,
+}: {
+  today: TodayMetrics;
+  heartHealth: HeartHealthMetrics;
+  movement: MovementMetrics;
+  vo2max: VO2MaxTrend;
+}) {
   const dateLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
@@ -43,9 +48,13 @@ export default async function Home() {
           >
             <MetricCard
               label="Steps"
-              value={today.steps.toLocaleString()}
+              value={today.steps != null ? today.steps.toLocaleString() : null}
               color="green"
-              progress={{ current: today.steps, goal: today.stepsGoal }}
+              progress={
+                today.stepsGoal > 0
+                  ? { current: today.steps, goal: today.stepsGoal }
+                  : undefined
+              }
             />
             <MetricCard
               label="Active Calories"
@@ -129,5 +138,47 @@ export default async function Home() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default async function Home() {
+  let today: TodayMetrics;
+  let heartHealth: HeartHealthMetrics;
+  let movement: MovementMetrics;
+  let vo2max: VO2MaxTrend;
+
+  try {
+    [today, heartHealth, movement, vo2max] = await Promise.all([
+      fetchTodayMetrics(),
+      fetchHeartHealthMetrics(),
+      fetchMovementMetrics(),
+      fetchVO2MaxTrend(),
+    ]);
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Unable to load health data. Please try again.';
+    return (
+      <main className="min-h-screen p-6 md:p-10 flex items-center justify-center">
+        <div
+          className="max-w-md rounded-lg border border-background-hover bg-background-card p-8 text-center"
+          role="alert"
+        >
+          <AlertCircle className="w-10 h-10 text-accent-coral mx-auto mb-4" aria-hidden />
+          <h1 className="text-lg font-semibold text-text-primary mb-2">
+            Could not load dashboard
+          </h1>
+          <p className="text-sm text-text-secondary">{message}</p>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <DashboardContent
+      today={today}
+      heartHealth={heartHealth}
+      movement={movement}
+      vo2max={vo2max}
+    />
   );
 }

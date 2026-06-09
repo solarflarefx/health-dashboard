@@ -4,15 +4,15 @@ import type { ReactNode } from 'react';
 export type AccentColor = 'green' | 'blue' | 'coral' | 'default';
 
 export interface ProgressData {
-  current: number;
+  current: number | null;
   goal: number;
 }
 
 export interface MetricCardProps {
   /** Short human-readable label shown above the value */
   label: string;
-  /** Numeric or pre-formatted string value */
-  value: number | string;
+  /** Numeric or pre-formatted string value; null/undefined shows an em dash for missing Garmin data */
+  value: number | string | null | undefined;
   /** Unit suffix shown next to the value (e.g. "kcal", "min") */
   unit?: string;
   /** Accent color token for the value and progress bar */
@@ -33,17 +33,17 @@ export interface SectionPanelProps {
 }
 
 export interface TodayMetrics {
-  steps: number;
+  steps: number | null;
   stepsGoal: number;
-  activeCalories: number;
-  activityTime: number;
+  activeCalories: number | null;
+  activityTime: number | null;
 }
 
 export interface HeartHealthMetrics {
-  restingHR: number;
-  minHR: number;
-  maxHR: number;
-  stressScore: number;
+  restingHR: number | null;
+  minHR: number | null;
+  maxHR: number | null;
+  stressScore: number | null;
 }
 
 export interface MovementMetrics {
