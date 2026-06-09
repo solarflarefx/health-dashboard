@@ -172,24 +172,30 @@ function isVo2ChartEmpty(trend: VO2MaxTrend): boolean {
 /** Line chart showing VO₂ Max progression over 12 weeks with gradient fill, crosshair, and HTML tooltip. */
 export function VO2MaxChart({ trend }: VO2MaxChartProps) {
   const empty = isVo2ChartEmpty(trend);
-  const labels = trend.history.map((p) => p.week);
-  const dataPoints = trend.history.map((p) => p.value);
-
-  const baseDataset: ChartData<'line'>['datasets'][0] = {
-    ...BASE_DATASET,
-    data: dataPoints,
-  };
-
   const chartRef = useRef<ChartJS<'line'>>(null);
-  const [chartData, setChartData] = useState<ChartData<'line'>>({
-    labels,
-    datasets: [baseDataset],
+  const [chartData, setChartData] = useState<ChartData<'line'>>(() => {
+    if (isVo2ChartEmpty(trend)) {
+      return { labels: [], datasets: [{ ...BASE_DATASET, data: [] }] };
+    }
+    const labels = trend.history.map((p) => p.week);
+    const dataPoints = trend.history.map((p) => p.value);
+    return {
+      labels,
+      datasets: [{ ...BASE_DATASET, data: dataPoints }],
+    };
   });
 
   useEffect(() => {
     if (empty) return;
     const chart = chartRef.current;
     if (!chart) return;
+
+    const labels = trend.history.map((p) => p.week);
+    const dataPoints = trend.history.map((p) => p.value);
+    const baseDataset: ChartData<'line'>['datasets'][0] = {
+      ...BASE_DATASET,
+      data: dataPoints,
+    };
 
     const gradient = chart.ctx.createLinearGradient(0, 0, 0, chart.height);
     gradient.addColorStop(0, 'rgba(96, 165, 250, 0.25)');
