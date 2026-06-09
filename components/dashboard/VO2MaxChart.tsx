@@ -161,25 +161,41 @@ interface VO2MaxChartProps {
   trend: VO2MaxTrend;
 }
 
+function isVo2ChartEmpty(trend: VO2MaxTrend): boolean {
+  return (
+    trend.history.length === 0 ||
+    trend.current == null ||
+    trend.current === 0
+  );
+}
+
 /** Line chart showing VO₂ Max progression over 12 weeks with gradient fill, crosshair, and HTML tooltip. */
 export function VO2MaxChart({ trend }: VO2MaxChartProps) {
-  const labels = trend.history.map((p) => p.week);
-  const dataPoints = trend.history.map((p) => p.value);
-
-  const baseDataset: ChartData<'line'>['datasets'][0] = {
-    ...BASE_DATASET,
-    data: dataPoints,
-  };
-
+  const empty = isVo2ChartEmpty(trend);
   const chartRef = useRef<ChartJS<'line'>>(null);
-  const [chartData, setChartData] = useState<ChartData<'line'>>({
-    labels,
-    datasets: [baseDataset],
+  const [chartData, setChartData] = useState<ChartData<'line'>>(() => {
+    if (isVo2ChartEmpty(trend)) {
+      return { labels: [], datasets: [{ ...BASE_DATASET, data: [] }] };
+    }
+    const labels = trend.history.map((p) => p.week);
+    const dataPoints = trend.history.map((p) => p.value);
+    return {
+      labels,
+      datasets: [{ ...BASE_DATASET, data: dataPoints }],
+    };
   });
 
   useEffect(() => {
+    if (empty) return;
     const chart = chartRef.current;
     if (!chart) return;
+
+    const labels = trend.history.map((p) => p.week);
+    const dataPoints = trend.history.map((p) => p.value);
+    const baseDataset: ChartData<'line'>['datasets'][0] = {
+      ...BASE_DATASET,
+      data: dataPoints,
+    };
 
     const gradient = chart.ctx.createLinearGradient(0, 0, 0, chart.height);
     gradient.addColorStop(0, 'rgba(96, 165, 250, 0.25)');
@@ -190,7 +206,20 @@ export function VO2MaxChart({ trend }: VO2MaxChartProps) {
       datasets: [{ ...baseDataset, backgroundColor: gradient }],
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trend]);
+  }, [trend, empty]);
+
+  if (empty) {
+    return (
+      <div
+        className="min-h-[220px] flex items-center justify-center rounded-lg border border-background-hover bg-background-card px-4"
+        aria-live="polite"
+      >
+        <p className="text-sm text-text-secondary text-center">
+          No VO<sub className="text-xs">2</sub> Max data available yet
+        </p>
+      </div>
+    );
+  }
 
   const changeSign = trend.change_this_month >= 0 ? '+' : '';
   const changeLabel = `${changeSign}${trend.change_this_month} this month`;
@@ -206,7 +235,7 @@ export function VO2MaxChart({ trend }: VO2MaxChartProps) {
             fontVariantNumeric: 'tabular-nums',
             whiteSpace: 'nowrap',
           }}
-        >{trend.current.toFixed(1)}</span>
+        >{trend.current!.toFixed(1)}</span>
         <span className="text-sm text-text-secondary">ml/kg/min</span>
         <div className="flex items-center gap-1 ml-2">
           <TrendingUp className="w-4 h-4 text-accent-green" />

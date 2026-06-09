@@ -7,6 +7,14 @@ const colorClasses = {
   default: { value: 'text-text-primary', bar: 'bg-text-primary' },
 } as const;
 
+function isValueMissing(value: MetricCardProps['value']): boolean {
+  return value === null || value === undefined;
+}
+
+function formatMetricValue(value: number | string): string {
+  return typeof value === 'number' ? value.toLocaleString() : value;
+}
+
 /**
  * Displays a single health metric with an optional progress bar.
  * Value text uses `font-mono-display` (JetBrains Mono) and is tinted
@@ -21,16 +29,24 @@ export function MetricCard({
   barColor,
 }: MetricCardProps) {
   const { value: valueClass, bar: barClass } = colorClasses[color];
-  const percentage = progress
-    ? Math.min(Math.round((progress.current / progress.goal) * 100), 100)
-    : 0;
+  const missing = isValueMissing(value);
+  const percentage =
+    progress && progress.goal > 0 && progress.current != null
+      ? Math.min(Math.round((progress.current / progress.goal) * 100), 100)
+      : 0;
 
   return (
     <div>
       <p className="text-sm text-text-secondary mb-1">{label}</p>
 
       <div className="flex items-baseline gap-2">
-        <span className={`text-2xl font-mono-display ${valueClass}`}>{value}</span>
+        {missing ? (
+          <span className="text-2xl font-mono-display text-text-secondary">—</span>
+        ) : (
+          <span className={`text-2xl font-mono-display ${valueClass}`}>
+            {formatMetricValue(value)}
+          </span>
+        )}
         {unit && <span className="text-sm text-text-secondary">{unit}</span>}
       </div>
 
@@ -43,7 +59,9 @@ export function MetricCard({
             />
           </div>
           <p className="mt-1 text-xs text-text-secondary font-mono-display">
-            {progress.current.toLocaleString()} / {progress.goal.toLocaleString()}
+            {progress.current != null
+              ? `${progress.current.toLocaleString()} / ${progress.goal.toLocaleString()}`
+              : `— / ${progress.goal.toLocaleString()}`}
           </p>
         </div>
       )}

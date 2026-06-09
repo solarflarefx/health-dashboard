@@ -13,7 +13,7 @@ describe('MetricCard', () => {
   it('applies green accent color class when color="green"', () => {
     render(<MetricCard label="Steps" value={8000} color="green" />);
 
-    expect(screen.getByText('8000')).toHaveClass('text-accent-green');
+    expect(screen.getByText('8,000')).toHaveClass('text-accent-green');
   });
 
   it('applies coral accent color class when color="coral"', () => {
