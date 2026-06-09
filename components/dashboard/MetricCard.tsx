@@ -11,6 +11,10 @@ function isValueMissing(value: MetricCardProps['value']): boolean {
   return value === null || value === undefined;
 }
 
+function formatMetricValue(value: number | string): string {
+  return typeof value === 'number' ? value.toLocaleString() : value;
+}
+
 /**
  * Displays a single health metric with an optional progress bar.
  * Value text uses `font-mono-display` (JetBrains Mono) and is tinted
@@ -39,7 +43,9 @@ export function MetricCard({
         {missing ? (
           <span className="text-2xl font-mono-display text-text-secondary">—</span>
         ) : (
-          <span className={`text-2xl font-mono-display ${valueClass}`}>{value}</span>
+          <span className={`text-2xl font-mono-display ${valueClass}`}>
+            {formatMetricValue(value)}
+          </span>
         )}
         {unit && <span className="text-sm text-text-secondary">{unit}</span>}
       </div>

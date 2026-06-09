@@ -11,7 +11,7 @@ export interface ProgressData {
 export interface MetricCardProps {
   /** Short human-readable label shown above the value */
   label: string;
-  /** Numeric or pre-formatted string value; null/undefined shows an em dash for missing Garmin data */
+  /** Raw numeric value or pre-formatted string; numbers are locale-formatted in MetricCard */
   value: number | string | null | undefined;
   /** Unit suffix shown next to the value (e.g. "kcal", "min") */
   unit?: string;

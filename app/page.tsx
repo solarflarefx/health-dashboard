@@ -48,7 +48,7 @@ function DashboardContent({
           >
             <MetricCard
               label="Steps"
-              value={today.steps != null ? today.steps.toLocaleString() : null}
+              value={today.steps}
               color="green"
               progress={
                 today.stepsGoal > 0
