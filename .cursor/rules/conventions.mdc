@@ -21,3 +21,30 @@ alwaysApply: true
 ## Decision Making
 - When a design or architecture decision is non-obvious, ask before implementing
 - Prefer clarity over cleverness
+
+## Architecture Decision Records (ADRs)
+
+**Location:** `docs/decisions/`, one file per decision, named `NNN-short-slug.md` with a zero-padded sequential number (`001`, `002`, `003`…).
+
+**When to check:** Before opening a PR — not on every local edit, not on every individual commit. Review whether the work in this PR represents a decision worth recording.
+
+**The test for ADR-worthiness:** Would a future contributor reasonably ask "why didn't you just do X instead?" about this choice? This applies to things like: library/framework choices, architectural patterns, tooling choices, auth strategies, infrastructure decisions — anything with real alternatives that were considered and rejected.
+
+**What does NOT need an ADR:** routine bug fixes, component-level design choices (e.g. what props a component takes), refactors that don't change the underlying approach. These belong in commit messages or, if they reflect current system structure, in `docs/architecture.md`.
+
+**Numbering rules:**
+- Numbers are sequential and permanent — never reused, never reorganized into categories
+- The number is a stable identifier, not a categorization scheme; use the slug in the filename for human-readable topic grouping
+- Always check the highest existing number in `docs/decisions/` before assigning the next one
+
+**When a previous decision changes:**
+- Do NOT edit the Decision or Consequences sections of an existing ADR
+- Create a new ADR with the next sequential number describing the new decision, including what changed and why
+- Update the OLD ADR's Status line to `Superseded by ADR-XXX` — this is the only edit allowed to a past ADR
+- The new ADR's Context section should reference what it supersedes and why the old reasoning no longer holds
+
+**Process:** When a PR appears to involve an ADR-worthy decision, propose creating one (or proposing a superseding one) to the user and describe why — do not silently create or silently skip one. Ask for confirmation before adding the file.
+
+## Architecture Documentation
+
+- `docs/architecture.md` should be updated whenever the actual system structure changes (new component patterns, new backend layers, new data sources) since it reflects current reality, not history — unlike ADRs which are never rewritten
