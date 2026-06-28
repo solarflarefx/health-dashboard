@@ -37,7 +37,7 @@ flowchart LR
 
     subgraph Backend["FastAPI Backend"]
         GC_CLIENT[garmin_client.py<br/>singleton + token store]
-        SVC[services/garmin.py<br/>business logic]
+        SVC[services/garmin.py<br/>business logic + _client_lock]
         MDL[models/metrics.py<br/>Pydantic schemas]
         RTR[routers/<br/>metrics.py · auth.py]
         LIB --> GC_CLIENT
@@ -169,16 +169,17 @@ To add an entirely new section (e.g. a "Body Composition" panel):
 ```mermaid
 flowchart TB
     subgraph HTTP["Routers — HTTP layer"]
-        MET["metrics.py<br/>GET /api/metrics/today|heart|movement|vo2max"]
+        MET["metrics.py<br/>GET /api/metrics/today|heart|movement|vo2max<br/>GET /api/metrics/history/{metric}"]
         AUTH["auth.py<br/>GET /api/auth/status<br/>POST /api/auth/retry"]
     end
 
     subgraph BL["Services — business logic"]
-        GAR["services/garmin.py<br/>fetch_today_metrics<br/>fetch_heart_health_metrics<br/>fetch_movement_metrics<br/>fetch_vo2max_trend"]
+        GAR["services/garmin.py<br/>fetch_* · get_*_history<br/>_locked_client_call + _client_lock"]
+        HIST["_fetch_stats_history<br/>(sequential per-day loop)"]
     end
 
     subgraph DATA["Models — Pydantic schemas"]
-        MDL["models/metrics.py<br/>TodayMetrics · HeartHealthMetrics<br/>MovementMetrics · VO2MaxTrend"]
+        MDL["models/metrics.py<br/>TodayMetrics · HeartHealthMetrics<br/>MovementMetrics · VO2MaxTrend<br/>MetricHistory · HistoryDataPoint"]
     end
 
     subgraph INFRA["Infrastructure"]
@@ -187,17 +188,40 @@ flowchart TB
     end
 
     MET --> GAR
+    GAR --> HIST
     GAR --> MDL
     GAR --> CLIENT
     CLIENT --> LIB
     AUTH --> CLIENT
 ```
 
-**Routers** validate that Garmin auth is ready (via the `require_garmin_auth` dependency on the metrics router), delegate to service functions, and return typed Pydantic models. Errors from Garmin are surfaced as HTTP 502; missing auth returns 503.
+**Routers** validate that Garmin auth is ready (via the `require_garmin_auth` dependency on the metrics router), delegate to service functions, and return typed Pydantic models. Errors from Garmin are surfaced as HTTP 502; missing auth returns 503. The history route (`GET /api/metrics/history/{metric_name}`) returns a fixed 502 message on fetch failure so upstream Garmin details are not leaked.
 
-**Services** contain all Garmin-specific logic. Each `fetch_*` function is decorated with `@_with_auth_retry`, which catches `GarminConnectAuthenticationError`, calls `refresh_garmin_client()`, and retries once. Blocking `garminconnect` calls run in a thread pool via `asyncio.to_thread`.
+**Services** contain all Garmin-specific logic. Each `fetch_*` and `get_*_history` function is decorated with `@_with_auth_retry`, which catches `GarminConnectAuthenticationError`, calls `refresh_garmin_client()`, and retries once. Blocking `garminconnect` calls run in a thread pool via `asyncio.to_thread`, but every `client.get_*` invocation passes through `_locked_client_call()` first (see below).
 
 **Models** define the JSON contract. Field names use snake_case to match Python conventions; the frontend maps them to camelCase in `lib/api.ts`.
+
+### Garmin client access
+
+The `garminconnect` client is a process-wide singleton backed by a `requests.Session`, which is not thread-safe. `services/garmin.py` therefore serializes all blocking HTTP through a module-level `threading.Lock`:
+
+```mermaid
+flowchart LR
+    subgraph Service["services/garmin.py"]
+        FN["fetch_* / get_*_history"]
+        HIST["_fetch_stats_history"]
+        TO["asyncio.to_thread"]
+        LOCK["_locked_client_call<br/>(_client_lock)"]
+    end
+
+    CLIENT["Garmin singleton<br/>get_stats · get_heart_rates<br/>get_activities_by_date · get_max_metrics"]
+    FN --> TO --> LOCK --> CLIENT
+    HIST -->|"one day per iteration"| TO
+```
+
+- **`_locked_client_call(fn, *args)`** — acquires `_client_lock`, then calls the bound client method (`fn`). Every `client.get_*` path in this module uses this helper; there are no direct unlocked calls.
+- **Single-day endpoints** (`fetch_today_metrics`, `fetch_heart_health_metrics`, etc.) — one or two `asyncio.to_thread(_locked_client_call, client.get_*, …)` calls per request. `fetch_heart_health_metrics` and `fetch_movement_metrics` still use `asyncio.gather` for readability, but the lock serializes the underlying HTTP — there is no throughput gain from `gather`.
+- **Multi-day history** (`_fetch_stats_history`) — used by `get_steps_history`, `get_resting_hr_history`, and `get_stress_history`. Fetches each of the last *N* days **sequentially** (oldest first, UTC-anchored via `_utc_today()`), awaiting one `get_stats` call before starting the next. This avoids scheduling many thread-pool jobs up front, fails fast on the first error, and does not issue Garmin requests for remaining days after a failure. Days where the metric value is `None` are omitted from the response (zeros are kept).
 
 ### Authentication flow
 
@@ -243,9 +267,11 @@ Key details:
 
 1. **`app/models/metrics.py`** — define a new Pydantic `BaseModel` for the response shape.
 2. **`app/services/garmin.py`** — implement an async `fetch_*` function that:
-   - calls the appropriate `garminconnect` client method via `asyncio.to_thread`
+   - obtains the client via `get_garmin_client()`
+   - calls the appropriate `garminconnect` method through `asyncio.to_thread(_locked_client_call, client.method, …)` — never call `client.*` directly
    - maps the raw dict response into the Pydantic model
    - is decorated with `@_with_auth_retry`
+   - for multi-day ranges, prefer a sequential loop (like `_fetch_stats_history`) so failures do not schedule unnecessary Garmin requests
 3. **`app/routers/metrics.py`** — add a `GET` route with `response_model=YourModel`, calling the new service function and wrapping errors in `HTTPException(502)`.
 4. On the frontend, add types, a fetch helper, and UI as described in the frontend section above.
 
@@ -275,7 +301,9 @@ sequenceDiagram
     Router->>Svc: fetch_today_metrics()
     Svc->>Client: get_garmin_client()
     Client-->>Svc: Garmin instance
-    Svc->>GC: asyncio.to_thread(client.get_stats, date)
+    Svc->>Svc: asyncio.to_thread(_locked_client_call, client.get_stats, date)
+    Note over Svc: _client_lock serializes all client.get_* calls
+    Svc->>GC: client.get_stats(date) under lock
     GC->>Garmin: HTTPS request
     Garmin-->>GC: Raw JSON stats
     GC-->>Svc: dict
@@ -287,7 +315,7 @@ sequenceDiagram
     Next->>Browser: Render MetricCard components
 ```
 
-The same pattern applies to the other three endpoints, with different `garminconnect` methods (`get_heart_rates`, `get_activities_by_date`, `get_max_metrics`) and different Pydantic models.
+The same pattern applies to the other endpoints, with different `garminconnect` methods (`get_heart_rates`, `get_activities_by_date`, `get_max_metrics`) and different Pydantic models. History endpoints (`GET /api/metrics/history/{metric_name}`) call `_fetch_stats_history`, which issues one sequential `get_stats` per day through the same lock.
 
 ---
 
@@ -300,6 +328,7 @@ The architecture separates concerns so new health metrics or entirely new data s
 | Layer | Stable contracts |
 |---|---|
 | `garmin_client.py` | Singleton auth, token store, MFA, retry — shared by all Garmin-backed services |
+| `services/garmin.py` | `_client_lock` / `_locked_client_call` — all Garmin HTTP goes through the lock |
 | `app/main.py` | App wiring, CORS, startup hook |
 | `app/config.py` | Environment variable loading |
 | `SectionPanel`, `MetricCard` | Generic display components — no metric-specific logic |
