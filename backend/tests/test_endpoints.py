@@ -109,6 +109,49 @@ class TestVO2MaxEndpoint:
         assert unauthenticated_client.get("/api/metrics/vo2max").status_code == 503
 
 
+class TestMetricHistoryEndpoint:
+    @pytest.mark.parametrize(
+        "metric_name",
+        ["steps", "resting-hr", "stress"],
+    )
+    def test_valid_metric_returns_200(self, client: TestClient, metric_name: str) -> None:
+        assert client.get(f"/api/metrics/history/{metric_name}").status_code == 200
+
+    @pytest.mark.parametrize(
+        "metric_name",
+        ["steps", "resting-hr", "stress"],
+    )
+    def test_response_shape(self, client: TestClient, metric_name: str) -> None:
+        data = client.get(f"/api/metrics/history/{metric_name}").json()
+        assert data["metric"] == metric_name
+        assert data["days"] == 7
+        assert "history" in data
+        assert isinstance(data["history"], list)
+        assert len(data["history"]) > 0
+        for point in data["history"]:
+            assert "date" in point
+            assert "value" in point
+            assert isinstance(point["value"], float)
+
+    def test_invalid_metric_returns_400(self, client: TestClient) -> None:
+        response = client.get("/api/metrics/history/unknown")
+        assert response.status_code == 400
+        assert "detail" in response.json()
+
+    def test_custom_days_parameter(self, client: TestClient) -> None:
+        data = client.get("/api/metrics/history/steps?days=14").json()
+        assert data["days"] == 14
+
+    def test_days_below_minimum_returns_422(self, client: TestClient) -> None:
+        assert client.get("/api/metrics/history/steps?days=0").status_code == 422
+
+    def test_days_above_maximum_returns_422(self, client: TestClient) -> None:
+        assert client.get("/api/metrics/history/steps?days=91").status_code == 422
+
+    def test_503_when_unauthenticated(self, unauthenticated_client: TestClient) -> None:
+        assert unauthenticated_client.get("/api/metrics/history/steps").status_code == 503
+
+
 class TestAuthEndpoints:
     def test_auth_status_returns_200(self, client: TestClient) -> None:
         assert client.get("/api/auth/status").status_code == 200

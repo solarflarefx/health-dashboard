@@ -17,6 +17,7 @@ from garminconnect import GarminConnectAuthenticationError
 from app.garmin_client import get_garmin_client, refresh_garmin_client
 from app.models.metrics import (
     HeartHealthMetrics,
+    HistoryDataPoint,
     MovementMetrics,
     TodayMetrics,
     VO2MaxPoint,
@@ -179,3 +180,58 @@ async def fetch_vo2max_trend() -> VO2MaxTrend:
         change_this_month=change_this_month,
         history=history,
     )
+
+
+# ─── Daily History ────────────────────────────────────────────────────────────
+
+
+async def _fetch_stats_history(days: int) -> list[tuple[str, dict]]:
+    """Fetch get_stats() for each of the last *days* days concurrently (oldest first)."""
+    if days > 30:
+        logger.warning(
+            "Fetching %d days of history requires %d Garmin API calls",
+            days,
+            days,
+        )
+    today = date.today()
+    date_strs = [(today - timedelta(days=days - 1 - i)).isoformat() for i in range(days)]
+    client = get_garmin_client()
+    stats_list = await asyncio.gather(
+        *[asyncio.to_thread(client.get_stats, d) for d in date_strs]
+    )
+    return list(zip(date_strs, stats_list, strict=True))
+
+
+@_with_auth_retry
+async def get_steps_history(days: int) -> list[HistoryDataPoint]:
+    history: list[HistoryDataPoint] = []
+    for date_str, stats in await _fetch_stats_history(days):
+        raw = stats.get("totalSteps")
+        if raw is None:
+            continue
+        history.append(HistoryDataPoint(date=date_str, value=float(raw)))
+    return history
+
+
+@_with_auth_retry
+async def get_resting_hr_history(days: int) -> list[HistoryDataPoint]:
+    history: list[HistoryDataPoint] = []
+    for date_str, stats in await _fetch_stats_history(days):
+        raw = stats.get("restingHeartRate")
+        if raw is None:
+            continue
+        history.append(HistoryDataPoint(date=date_str, value=float(raw)))
+    return history
+
+
+@_with_auth_retry
+async def get_stress_history(days: int) -> list[HistoryDataPoint]:
+    history: list[HistoryDataPoint] = []
+    for date_str, stats in await _fetch_stats_history(days):
+        avg_stress = stats.get("averageStressLevel")
+        max_stress = stats.get("maxStressLevel")
+        raw = avg_stress if avg_stress is not None else max_stress
+        if raw is None:
+            continue
+        history.append(HistoryDataPoint(date=date_str, value=float(raw)))
+    return history

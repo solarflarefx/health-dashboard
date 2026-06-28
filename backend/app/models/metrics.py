@@ -34,3 +34,14 @@ class VO2MaxTrend(BaseModel):
     current: float
     change_this_month: float
     history: list[VO2MaxPoint]
+
+
+class HistoryDataPoint(BaseModel):
+    date: str  # YYYY-MM-DD
+    value: float | None
+
+
+class MetricHistory(BaseModel):
+    metric: str
+    days: int
+    history: list[HistoryDataPoint]
