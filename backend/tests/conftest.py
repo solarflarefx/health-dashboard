@@ -14,6 +14,8 @@ import app.garmin_client as garmin_client_module
 from app.main import app
 from app.models.metrics import (
     HeartHealthMetrics,
+    HistoryDataPoint,
+    MetricHistory,
     MovementMetrics,
     TodayMetrics,
     VO2MaxPoint,
@@ -50,12 +52,48 @@ MOCK_VO2MAX = VO2MaxTrend(
     history=[VO2MaxPoint(week=f"W{i + 1}", value=round(47.5 + i * 0.1, 1)) for i in range(12)],
 )
 
+MOCK_STEPS_HISTORY = MetricHistory(
+    metric="steps",
+    days=7,
+    history=[
+        HistoryDataPoint(date="2026-06-20", value=8_000.0),
+        HistoryDataPoint(date="2026-06-21", value=9_500.0),
+        HistoryDataPoint(date="2026-06-22", value=7_200.0),
+    ],
+)
+
+MOCK_RESTING_HR_HISTORY = MetricHistory(
+    metric="resting-hr",
+    days=7,
+    history=[
+        HistoryDataPoint(date="2026-06-20", value=58.0),
+        HistoryDataPoint(date="2026-06-21", value=57.0),
+    ],
+)
+
+MOCK_STRESS_HISTORY = MetricHistory(
+    metric="stress",
+    days=7,
+    history=[
+        HistoryDataPoint(date="2026-06-20", value=32.0),
+        HistoryDataPoint(date="2026-06-21", value=28.0),
+    ],
+)
+
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 
 @pytest.fixture
 def mock_services():
     """Patch all Garmin service functions with AsyncMocks returning realistic data."""
+    steps_mock = AsyncMock(return_value=MOCK_STEPS_HISTORY.history)
+    resting_hr_mock = AsyncMock(return_value=MOCK_RESTING_HR_HISTORY.history)
+    stress_mock = AsyncMock(return_value=MOCK_STRESS_HISTORY.history)
+    history_fetchers = {
+        "steps": steps_mock,
+        "resting-hr": resting_hr_mock,
+        "stress": stress_mock,
+    }
     with (
         patch(
             "app.routers.metrics.fetch_today_metrics",
@@ -73,8 +111,13 @@ def mock_services():
             "app.routers.metrics.fetch_vo2max_trend",
             new=AsyncMock(return_value=MOCK_VO2MAX),
         ),
+        patch("app.routers.metrics._HISTORY_FETCHERS", history_fetchers),
     ):
-        yield
+        yield {
+            "get_steps_history": steps_mock,
+            "get_resting_hr_history": resting_hr_mock,
+            "get_stress_history": stress_mock,
+        }
 
 
 @pytest.fixture

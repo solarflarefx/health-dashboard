@@ -1,8 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated
+
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.garmin_client import is_auth_ready
 from app.models.metrics import (
     HeartHealthMetrics,
+    MetricHistory,
     MovementMetrics,
     TodayMetrics,
     VO2MaxTrend,
@@ -12,7 +17,18 @@ from app.services.garmin import (
     fetch_movement_metrics,
     fetch_today_metrics,
     fetch_vo2max_trend,
+    get_resting_hr_history,
+    get_steps_history,
+    get_stress_history,
 )
+
+_HISTORY_FETCHERS = {
+    "steps": get_steps_history,
+    "resting-hr": get_resting_hr_history,
+    "stress": get_stress_history,
+}
+
+logger = logging.getLogger(__name__)
 
 
 def require_garmin_auth() -> None:
@@ -61,3 +77,25 @@ async def get_vo2max_trend() -> VO2MaxTrend:
         return await fetch_vo2max_trend()
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/history/{metric_name}", response_model=MetricHistory)
+async def get_metric_history(
+    metric_name: str,
+    days: Annotated[int, Query(ge=1, le=90)] = 7,
+) -> MetricHistory:
+    fetcher = _HISTORY_FETCHERS.get(metric_name)
+    if fetcher is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown metric '{metric_name}' — expected one of: steps, resting-hr, stress",
+        )
+    try:
+        history = await fetcher(days)
+    except Exception as exc:
+        logger.exception("Failed to fetch %s history for %d days", metric_name, days)
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to fetch metric history from Garmin",
+        ) from exc
+    return MetricHistory(metric=metric_name, days=days, history=history)
