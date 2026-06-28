@@ -50,7 +50,10 @@ F = TypeVar("F", bound=Callable[..., Any])
 _client_lock = threading.Lock()
 
 
-def _locked_client_call(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+P = ParamSpec("P")
+R = TypeVar("R")
+
+def _locked_client_call(fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
     with _client_lock:
         return fn(*args, **kwargs)
 
