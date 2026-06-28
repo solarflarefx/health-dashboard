@@ -18,8 +18,8 @@ fetch_heart_health_metrics and fetch_movement_metrics keep asyncio.gather
 for readability even though the lock serializes the underlying HTTP calls —
 there is no throughput gain from gather once the lock is in place.
 
-_fetch_stats_history uses gather for the same reason: equivalent throughput
-to a sequential loop, but expresses the independent per-day fetches clearly.
+_fetch_stats_history uses a sequential loop (not gather) so a failure on
+day 1 does not schedule the remaining days' Garmin calls.
 """
 
 import asyncio
@@ -153,7 +153,10 @@ async def fetch_movement_metrics() -> MovementMetrics:
     )
 
     # If today's stats are all None (Garmin hasn't synced yet), use yesterday.
-    if not any(stats.get(k) for k in ("totalSteps", "activeKilocalories", "moderateIntensityMinutes")):
+    if all(
+        stats.get(k) is None
+        for k in ("totalSteps", "activeKilocalories", "moderateIntensityMinutes")
+    ):
         yesterday_str = (today - timedelta(days=1)).isoformat()
         stats = await asyncio.to_thread(_locked_client_call, client.get_stats, yesterday_str)
 
@@ -230,13 +233,10 @@ async def _fetch_stats_history(days: int) -> list[tuple[date, dict]]:
     today = _utc_today()
     dates = [today - timedelta(days=days - 1 - i) for i in range(days)]
     client = get_garmin_client()
-    # gather kept for readability; _client_lock serializes the actual HTTP calls.
-    stats_list = await asyncio.gather(
-        *[
-            asyncio.to_thread(_locked_client_call, client.get_stats, d.isoformat())
-            for d in dates
-        ]
-    )
+    stats_list: list[dict] = []
+    for d in dates:
+        stats = await asyncio.to_thread(_locked_client_call, client.get_stats, d.isoformat())
+        stats_list.append(stats)
     return list(zip(dates, stats_list, strict=True))
 
 
