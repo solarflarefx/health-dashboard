@@ -221,7 +221,7 @@ flowchart LR
 
 - **`_locked_client_call(fn, *args)`** — acquires `_client_lock`, then calls the bound client method (`fn`). Every `client.get_*` path in this module uses this helper; there are no direct unlocked calls.
 - **Single-day endpoints** (`fetch_today_metrics`, `fetch_heart_health_metrics`, etc.) — one or two `asyncio.to_thread(_locked_client_call, client.get_*, …)` calls per request. `fetch_heart_health_metrics` and `fetch_movement_metrics` still use `asyncio.gather` for readability, but the lock serializes the underlying HTTP — there is no throughput gain from `gather`.
-- **Multi-day history** (`_fetch_stats_history`) — used by `get_steps_history`, `get_resting_hr_history`, and `get_stress_history`. Fetches each of the last *N* days **sequentially** (oldest first, UTC-anchored via `_utc_today()`), awaiting one `get_stats` call before starting the next. This avoids scheduling many thread-pool jobs up front, fails fast on the first error, and does not issue Garmin requests for remaining days after a failure. Days where the metric value is `None` are omitted from the response (zeros are kept).
+- **Multi-day history** (`_fetch_stats_history`) — used by `get_steps_history`, `get_resting_hr_history`, and `get_stress_history`. Fetches each of the last *N* days **sequentially** (oldest first, UTC-anchored via `_utc_today()`), awaiting one `get_stats` call before starting the next. This avoids scheduling many thread-pool jobs up front, fails fast on the first error, and does not issue Garmin requests for remaining days after a failure. Days when the metric value is `None` are omitted from the response; zero values returned by Garmin are preserved.
 
 ### Authentication flow
 
