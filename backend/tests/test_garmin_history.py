@@ -47,6 +47,28 @@ class TestFetchStatsHistory:
             any_order=False,
         )
 
+    @pytest.mark.asyncio
+    async def test_stops_on_first_get_stats_failure(self) -> None:
+        expected_dates = _dates(3)
+        mock_client = MagicMock()
+        mock_client.get_stats.side_effect = [{}, RuntimeError("garmin failure"), {}]
+        with (
+            patch("app.services.garmin._utc_today", return_value=FIXED_TODAY),
+            patch("app.services.garmin.get_garmin_client", return_value=mock_client),
+            patch(
+                "app.services.garmin._locked_client_call",
+                side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="garmin failure"):
+                await _fetch_stats_history(3)
+
+        mock_client.get_stats.assert_has_calls(
+            [call(d.isoformat()) for d in expected_dates[:2]],
+            any_order=False,
+        )
+        assert mock_client.get_stats.call_count == 2
+
 
 class TestStepsHistory:
     @pytest.mark.asyncio
