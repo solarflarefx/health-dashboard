@@ -138,9 +138,16 @@ class TestMetricHistoryEndpoint:
         assert response.status_code == 400
         assert "detail" in response.json()
 
-    def test_custom_days_parameter(self, client: TestClient) -> None:
+    def test_custom_days_parameter(self, client: TestClient, mock_services: dict) -> None:
         data = client.get("/api/metrics/history/steps?days=14").json()
         assert data["days"] == 14
+        mock_services["get_steps_history"].assert_awaited_once_with(14)
+
+    def test_502_when_fetcher_fails(self, client: TestClient, mock_services: dict) -> None:
+        mock_services["get_steps_history"].side_effect = RuntimeError("internal garmin failure")
+        response = client.get("/api/metrics/history/steps")
+        assert response.status_code == 502
+        assert response.json()["detail"] == "Failed to fetch metric history from Garmin"
 
     def test_days_below_minimum_returns_422(self, client: TestClient) -> None:
         assert client.get("/api/metrics/history/steps?days=0").status_code == 422

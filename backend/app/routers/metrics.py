@@ -1,5 +1,7 @@
 from typing import Annotated
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.garmin_client import is_auth_ready
@@ -25,6 +27,8 @@ _HISTORY_FETCHERS = {
     "resting-hr": get_resting_hr_history,
     "stress": get_stress_history,
 }
+
+logger = logging.getLogger(__name__)
 
 
 def require_garmin_auth() -> None:
@@ -89,5 +93,9 @@ async def get_metric_history(
     try:
         history = await fetcher(days)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        logger.exception("Failed to fetch %s history for %d days", metric_name, days)
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to fetch metric history from Garmin",
+        ) from exc
     return MetricHistory(metric=metric_name, days=days, history=history)

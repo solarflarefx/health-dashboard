@@ -4,11 +4,28 @@ Garmin data-fetching service.
 All functions are async (they run the blocking garminconnect calls in a
 thread pool via asyncio.to_thread) and auto-retry once on authentication
 errors before propagating the exception.
+
+Thread safety
+-------------
+The Garmin client is a process-wide singleton backed by a requests.Session,
+which is not thread-safe.  Every client method call runs under _client_lock
+via _locked_client_call(), so concurrent asyncio.gather/to_thread tasks
+cannot corrupt session state.
+
+Concurrency style
+-----------------
+fetch_heart_health_metrics and fetch_movement_metrics keep asyncio.gather
+for readability even though the lock serializes the underlying HTTP calls —
+there is no throughput gain from gather once the lock is in place.
+
+_fetch_stats_history uses gather for the same reason: equivalent throughput
+to a sequential loop, but expresses the independent per-day fetches clearly.
 """
 
 import asyncio
 import logging
-from datetime import date, timedelta
+import threading
+from datetime import date, datetime, timedelta, timezone
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
@@ -27,6 +44,15 @@ from app.models.metrics import (
 logger = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+# Serializes all blocking Garmin HTTP calls — the client singleton uses
+# requests.Session, which must not be accessed concurrently from multiple threads.
+_client_lock = threading.Lock()
+
+
+def _locked_client_call(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    with _client_lock:
+        return fn(*args, **kwargs)
 
 
 def _with_auth_retry(fn: F) -> F:
@@ -52,7 +78,7 @@ async def fetch_today_metrics() -> TodayMetrics:
     today_str = date.today().isoformat()
     client = get_garmin_client()
 
-    stats: dict = await asyncio.to_thread(client.get_stats, today_str)
+    stats: dict = await asyncio.to_thread(_locked_client_call, client.get_stats, today_str)
 
     steps: int = int(stats.get("totalSteps") or 0)
     steps_goal: int = int(stats.get("dailyStepGoal") or 10_000)
@@ -79,9 +105,10 @@ async def fetch_heart_health_metrics() -> HeartHealthMetrics:
     today_str = date.today().isoformat()
     client = get_garmin_client()
 
+    # gather kept for readability; _client_lock serializes the actual HTTP calls.
     hr_data, stats = await asyncio.gather(
-        asyncio.to_thread(client.get_heart_rates, today_str),
-        asyncio.to_thread(client.get_stats, today_str),
+        asyncio.to_thread(_locked_client_call, client.get_heart_rates, today_str),
+        asyncio.to_thread(_locked_client_call, client.get_stats, today_str),
     )
 
     resting_hr: int = int(hr_data.get("restingHeartRate") or 0)
@@ -117,15 +144,18 @@ async def fetch_movement_metrics() -> MovementMetrics:
 
     client = get_garmin_client()
 
+    # gather kept for readability; _client_lock serializes the actual HTTP calls.
     activities, stats = await asyncio.gather(
-        asyncio.to_thread(client.get_activities_by_date, window_start_str, today_str),
-        asyncio.to_thread(client.get_stats, today_str),
+        asyncio.to_thread(
+            _locked_client_call, client.get_activities_by_date, window_start_str, today_str
+        ),
+        asyncio.to_thread(_locked_client_call, client.get_stats, today_str),
     )
 
     # If today's stats are all None (Garmin hasn't synced yet), use yesterday.
     if not any(stats.get(k) for k in ("totalSteps", "activeKilocalories", "moderateIntensityMinutes")):
         yesterday_str = (today - timedelta(days=1)).isoformat()
-        stats = await asyncio.to_thread(client.get_stats, yesterday_str)
+        stats = await asyncio.to_thread(_locked_client_call, client.get_stats, yesterday_str)
 
     weekly_activities: int = len(activities)
 
@@ -163,7 +193,7 @@ async def fetch_vo2max_trend() -> VO2MaxTrend:
     history: list[VO2MaxPoint] = []
     for week_offset in range(12):
         fetch_date = (today - timedelta(weeks=11 - week_offset)).isoformat()
-        entry = await asyncio.to_thread(client.get_max_metrics, fetch_date)
+        entry = await asyncio.to_thread(_locked_client_call, client.get_max_metrics, fetch_date)
         if not entry:
             continue
         try:
@@ -185,53 +215,61 @@ async def fetch_vo2max_trend() -> VO2MaxTrend:
 # ─── Daily History ────────────────────────────────────────────────────────────
 
 
-async def _fetch_stats_history(days: int) -> list[tuple[str, dict]]:
-    """Fetch get_stats() for each of the last *days* days concurrently (oldest first)."""
+def _utc_today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+async def _fetch_stats_history(days: int) -> list[tuple[date, dict]]:
+    """Fetch get_stats() for each of the last *days* days (oldest first)."""
     if days > 30:
         logger.warning(
             "Fetching %d days of history requires %d Garmin API calls",
             days,
             days,
         )
-    today = date.today()
-    date_strs = [(today - timedelta(days=days - 1 - i)).isoformat() for i in range(days)]
+    today = _utc_today()
+    dates = [today - timedelta(days=days - 1 - i) for i in range(days)]
     client = get_garmin_client()
+    # gather kept for readability; _client_lock serializes the actual HTTP calls.
     stats_list = await asyncio.gather(
-        *[asyncio.to_thread(client.get_stats, d) for d in date_strs]
+        *[
+            asyncio.to_thread(_locked_client_call, client.get_stats, d.isoformat())
+            for d in dates
+        ]
     )
-    return list(zip(date_strs, stats_list, strict=True))
+    return list(zip(dates, stats_list, strict=True))
 
 
 @_with_auth_retry
 async def get_steps_history(days: int) -> list[HistoryDataPoint]:
     history: list[HistoryDataPoint] = []
-    for date_str, stats in await _fetch_stats_history(days):
+    for day, stats in await _fetch_stats_history(days):
         raw = stats.get("totalSteps")
         if raw is None:
             continue
-        history.append(HistoryDataPoint(date=date_str, value=float(raw)))
+        history.append(HistoryDataPoint(date=day, value=float(raw)))
     return history
 
 
 @_with_auth_retry
 async def get_resting_hr_history(days: int) -> list[HistoryDataPoint]:
     history: list[HistoryDataPoint] = []
-    for date_str, stats in await _fetch_stats_history(days):
+    for day, stats in await _fetch_stats_history(days):
         raw = stats.get("restingHeartRate")
         if raw is None:
             continue
-        history.append(HistoryDataPoint(date=date_str, value=float(raw)))
+        history.append(HistoryDataPoint(date=day, value=float(raw)))
     return history
 
 
 @_with_auth_retry
 async def get_stress_history(days: int) -> list[HistoryDataPoint]:
     history: list[HistoryDataPoint] = []
-    for date_str, stats in await _fetch_stats_history(days):
+    for day, stats in await _fetch_stats_history(days):
         avg_stress = stats.get("averageStressLevel")
         max_stress = stats.get("maxStressLevel")
         raw = avg_stress if avg_stress is not None else max_stress
         if raw is None:
             continue
-        history.append(HistoryDataPoint(date=date_str, value=float(raw)))
+        history.append(HistoryDataPoint(date=day, value=float(raw)))
     return history

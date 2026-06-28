@@ -86,6 +86,14 @@ MOCK_STRESS_HISTORY = MetricHistory(
 @pytest.fixture
 def mock_services():
     """Patch all Garmin service functions with AsyncMocks returning realistic data."""
+    steps_mock = AsyncMock(return_value=MOCK_STEPS_HISTORY.history)
+    resting_hr_mock = AsyncMock(return_value=MOCK_RESTING_HR_HISTORY.history)
+    stress_mock = AsyncMock(return_value=MOCK_STRESS_HISTORY.history)
+    history_fetchers = {
+        "steps": steps_mock,
+        "resting-hr": resting_hr_mock,
+        "stress": stress_mock,
+    }
     with (
         patch(
             "app.routers.metrics.fetch_today_metrics",
@@ -103,20 +111,13 @@ def mock_services():
             "app.routers.metrics.fetch_vo2max_trend",
             new=AsyncMock(return_value=MOCK_VO2MAX),
         ),
-        patch(
-            "app.routers.metrics.get_steps_history",
-            new=AsyncMock(return_value=MOCK_STEPS_HISTORY.history),
-        ),
-        patch(
-            "app.routers.metrics.get_resting_hr_history",
-            new=AsyncMock(return_value=MOCK_RESTING_HR_HISTORY.history),
-        ),
-        patch(
-            "app.routers.metrics.get_stress_history",
-            new=AsyncMock(return_value=MOCK_STRESS_HISTORY.history),
-        ),
+        patch("app.routers.metrics._HISTORY_FETCHERS", history_fetchers),
     ):
-        yield
+        yield {
+            "get_steps_history": steps_mock,
+            "get_resting_hr_history": resting_hr_mock,
+            "get_stress_history": stress_mock,
+        }
 
 
 @pytest.fixture

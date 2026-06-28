@@ -1,5 +1,7 @@
 """Pydantic response models — mirrors the TypeScript types in types/dashboard.ts."""
 
+from datetime import date
+
 from pydantic import BaseModel
 
 
@@ -37,7 +39,7 @@ class VO2MaxTrend(BaseModel):
 
 
 class HistoryDataPoint(BaseModel):
-    date: str  # YYYY-MM-DD
+    date: date
     value: float | None
 
 
